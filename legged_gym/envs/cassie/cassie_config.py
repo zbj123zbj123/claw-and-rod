@@ -76,8 +76,6 @@ class CassieRoughCfg( LeggedRobotCfg ):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/cassie/urdf/cassie.urdf'
         name = "cassie"
         foot_name = 'toe'
-        terminate_after_contacts_on = ['pelvis']
-        flip_visual_attachments = False
         self_collisions = 1 # 1 to disable, 0 to enable...bitwise filter
   
     class rewards( LeggedRobotCfg.rewards ):
