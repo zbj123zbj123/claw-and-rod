@@ -22,7 +22,7 @@ class Claw4(LeggedRobot):
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
         self.tune_on=True
         self.tune_joint="P_1_to_2_Link"
-        self.tune_A=0.5
+        self.tune_A=0
         self.tune_delay=1.0
         self.tune_f=0.50
         self.tune_dt=self.sim_params.dt
@@ -45,6 +45,17 @@ class Claw4(LeggedRobot):
             actuator_network_path = self.cfg.control.actuator_net_file.format(LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR)
             self.actuator_network = torch.jit.load(actuator_network_path).to(self.device)
 
+    def _compute_torques(self, actions):
+        # Choose between pd controller and actuator network
+        if self.cfg.control.use_actuator_network:
+            with torch.inference_mode():
+                self.sea_input[:, 0, 0] = (actions * self.cfg.control.action_scale + self.default_dof_pos - self.dof_pos).flatten()
+                self.sea_input[:, 0, 1] = self.dof_vel.flatten()
+                torques, (self.sea_hidden_state[:], self.sea_cell_state[:]) = self.actuator_network(self.sea_input, (self.sea_hidden_state, self.sea_cell_state))
+            return torques
+        else:
+            # pd controller
+            return super()._compute_torques(actions)
     def _create_envs(self):
         asset_path = self.cfg.asset.file.format(LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR)
         asset_root = os.path.dirname(asset_path)
@@ -247,8 +258,10 @@ class Claw4(LeggedRobot):
         self.gym.set_actor_root_state_tensor_indexed(self.sim,gymtorch.unwrap_tensor(root.to(dtype=torch.float32)),gymtorch.unwrap_tensor(rod_idx_i32), len(rod_idx))
 
     def _claw_contact_flags(self, a=20.0):
-        f = torch.norm(self.contact_forces, dim=2)
-        return (torch.sum(f[:, self.claw_indices] ,dim=1)>2*a),(f[:,5]>a)
+        contact_forces_xy = self.contact_forces[..., :2]  # shape: [num_envs, N_contact_points, 2]
+        f1= torch.norm(contact_forces_xy, dim=2)  # shape: [num_envs, N_contact_points]
+
+        return (torch.sum(f1[:, self.claw_indices] ,dim=1)>2*a)  ,  (self.contact_forces[:,5,2]>a)
 
     def _claw_contact_rod(self,threshold=20.0):
         contact1,contact2=self._claw_contact_flags(a=threshold)

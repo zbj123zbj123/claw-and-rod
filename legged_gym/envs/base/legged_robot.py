@@ -225,7 +225,7 @@ class LeggedRobot(BaseTask):
         """
         self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
         self.time_out_buf = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
-        self.reset_buf = self.time_out_buf
+        self.reset_buf |= self.time_out_buf
 
     def reset_idx(self, env_ids):
         """ Reset some environments.
@@ -464,12 +464,16 @@ class LeggedRobot(BaseTask):
         """
         #pd controller
 
-
-        actions_scaled = actions * self.cfg.control.action_scale
-
+        self.action_scale_vec = torch.ones(self.num_dof, device=self.device) * self.cfg.control.action_scale
+        left_idx=self.dof_names.index('P_2_to_left_Link')
+        right_idx=self.dof_names.index('P_2_to_right_Link')
+        self.action_scale_vec[left_idx] = 0.18
+        self.action_scale_vec[right_idx] = 0.20
+        actions_scaled = actions * self.action_scale_vec
+        self.claw_idx =[left_idx, right_idx]
+        actions_scaled[:,self.claw_idx] = torch.tensor(0, device=actions_scaled.device, dtype=actions_scaled.dtype)
 
         if self.tune_on:
-            import math, torch
             qd_ref = torch.zeros_like(self.dof_vel)
             # qd_scalar = self.tune_A * (2.0 * math.pi * self.tune_f) * math.cos(
             #     2.0 * math.pi * self.tune_f * self.tune_t)
@@ -481,8 +485,8 @@ class LeggedRobot(BaseTask):
             actions_scaled.zero_()
             actions_scaled[:,self.tune_jid]=torch.tensor(offset, device=actions_scaled.device, dtype=actions_scaled.dtype)
             pos_target = actions_scaled + self.default_dof_pos
-            tgt0 = float(pos_target[0, self.tune_jid].item())  # 上一拍目标
-            pos0 = float(self.dof_pos[0, self.tune_jid].item())  # 这一拍实际
+            tgt0 = float(pos_target[0, self.tune_jid].item())
+            pos0 = float(self.dof_pos[0, self.tune_jid].item())
             e0 = tgt0 - pos0
             self.tr_t.append(self.tune_t)
             self.tr_ref.append(float(pos_target[0,self.tune_jid].item()))
@@ -530,7 +534,40 @@ class LeggedRobot(BaseTask):
                 self.tb.add_figure("tune/error_" + self.tune_joint, fig2, global_step=step)
                 fig2.savefig(f"/home/abc/isaacgym/legged_gym/logs/tb_pid_tune/error_{self.tune_joint}.png", dpi=150)
                 plt.close(fig2)
-        self.tune_last_target = pos_target.detach().clone()
+
+                t_np = np.array(self.tr_t, dtype=np.float64)
+                ref_np = np.array(self.tr_ref, dtype=np.float64)
+                pos_np = np.array(self.tr_pos, dtype=np.float64)
+                percent_band1 = 0.02
+                metrics = self.compute_step_metrics(t=t_np, ref=ref_np, pos=pos_np, percent_band=percent_band1)
+                if metrics is not None:
+                    Mp = metrics["Mp"]
+                    tr = metrics["tr"]
+                    ts = metrics["ts"]
+                    ess = metrics["ess"]
+                    rms = metrics["rms"]
+
+                    step = len(self.tr_t)
+                    kp = float(self.p_gains[0, self.tune_jid].item()) if self.p_gains.dim() == 2 else float(
+                        self.p_gains[self.tune_jid].item())
+                    kd = float(self.d_gains[0, self.tune_jid].item()) if self.d_gains.dim() == 2 else float(
+                        self.d_gains[self.tune_jid].item())
+
+                    # 标量写入 TensorBoard
+                    self.tb.add_scalar("tune/rms_env0_" + self.tune_joint, rms, step)
+                    self.tb.add_scalar("tune/Mp_" + self.tune_joint, Mp, step)
+                    if tr is not None:
+                        self.tb.add_scalar("tune/tr_" + self.tune_joint, tr, step)
+                    if ts is not None:
+                        self.tb.add_scalar("tune/ts_" + self.tune_joint, ts, step)
+                    self.tb.add_scalar("tune/ess_" + self.tune_joint, ess, step)
+                    self.tb.add_scalar("tune/Kp_" + self.tune_joint, kp, step)
+                    self.tb.add_scalar("tune/Kd_" + self.tune_joint, kd, step)
+
+                    # 终端也打印一份，方便你看
+                    print(f"[tune-{self.tune_joint}] step={step}  "
+                          f"rms={rms:.4f} rad  Mp={Mp:.1f}%  tr={tr:.3f}s  ts={ts:.3f}s  ess={ess:.4f} rad  "
+                          f"Kp={kp:.1f}  Kd={kd:.1f}")
         self.tune_k += 1
         control_type = self.cfg.control.control_type
         print('actions_scaled', actions_scaled.shape)
@@ -553,6 +590,86 @@ class LeggedRobot(BaseTask):
         else:
             raise NameError(f"Unknown controller type: {control_type}")
         return torch.clip(torques, -self.torque_limits, self.torque_limits)#torch.clip(torques,-0.0,0.0)torch.clip(torques, -self.torque_limits, self.torque_limits)#torch.clip(torques,-0.0,0.0)torch.clip(torques, -self.torque_limits, self.torque_limits)
+
+    def compute_step_metrics(self,t, ref, pos, percent_band):
+        """
+        t, ref, pos: 1D numpy 数组，长度相同
+        percent_band: 整定带宽（默认 2%）
+        返回一个字典: {'Mp': ..., 'tr': ..., 'ts': ..., 'ess': ..., 'rms': ...}
+        """
+        t = np.asarray(t)
+        ref = np.asarray(ref)
+        pos = np.asarray(pos)
+
+        if len(t) < 5:
+            return None  # 数据太少
+
+        # 1) 找阶跃开始时刻（ref 第一次偏离初值）
+        r0 = ref[0]
+        idx_step = np.where(np.abs(ref - r0) > 1e-4)[0]
+        if len(idx_step) == 0:
+            return None  # 没找到阶跃
+        i0 = idx_step[0]
+        t0 = t[i0]
+
+        # 2) 最终参考值（取最后 N 个点平均，更稳）
+        N_tail = max(10, len(ref) // 10)
+        r_inf = ref[-N_tail:].mean()
+        A = r_inf - r0  # 阶跃幅值（可能为负）
+        if np.abs(A) < 1e-4:
+            return None
+
+        # 3) 归一化一个方向（考虑正/负阶跃）
+        sgn = np.sign(A)
+        y = sgn * pos  # 归一化后相当于正阶跃
+        y0 = sgn * r0
+        y_inf = sgn * r_inf
+        amp = np.abs(A)
+
+        # 4) 超调量 Mp（%）
+        peak = y[i0:].max()
+        Mp = max(0.0, (peak - y_inf) / amp) * 100.0  # 超调百分比
+
+        # 5) 上升时间 tr：从 10% 到 90%
+        y10 = y0 + 0.1 * amp
+        y90 = y0 + 0.9 * amp
+
+        def _first_cross(y_arr, thr):
+            idx = np.where(y_arr >= thr)[0]
+            return None if len(idx) == 0 else idx[0]
+
+        i10 = _first_cross(y[i0:], y10)
+        i90 = _first_cross(y[i0:], y90)
+        tr = None
+        if i10 is not None and i90 is not None and i90 > i10:
+            tr = t[i0 + i90] - t[i0 + i10]
+
+        # 6) 整定时间 ts：进入 ±percent_band 并保持
+        band = percent_band * amp
+        e = pos - r_inf
+        # 找最后一次出带的位置
+        out_band = np.where(np.abs(e) > band)[0]
+        ts = None
+        if len(out_band) > 0:
+            last_out = out_band[-1]
+            if last_out > i0:
+                ts = t[last_out] - t0
+            else:
+                ts = 0.0
+
+        # 7) 稳态误差 ess：末尾一段的平均误差
+        ess = e[-N_tail:].mean()
+
+        # 8) RMS 误差（从阶跃开始算）
+        rms = float(np.sqrt(np.mean((ref[i0:] - pos[i0:]) ** 2)))
+
+        return {
+            "Mp": Mp,  # 超调百分比 %
+            "tr": tr,  # 上升时间 (s)
+            "ts": ts,  # 整定时间 (s)
+            "ess": ess,  # 稳态误差 (rad)
+            "rms": rms,  # RMS 误差 (rad)
+        }
 
     def _reset_dofs(self, env_ids):#只有在done或者意外终止的时候才reset
         """ Resets DOF position and velocities of selected environmments

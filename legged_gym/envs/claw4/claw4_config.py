@@ -24,26 +24,26 @@ class Claw4Cfg(LeggedRobotCfg):
             heading = [-3.14, 3.14]
 
     class init_state(LeggedRobotCfg.init_state):
-        pos = [0.0, 0.0, 2.2]  # x,y,z [m]
-        rot = [0, 0.0, 0.0, 1]
+        pos = [0.0, 0.0,0.4] #[0.0, 0.0, 3.0]  # x,y,z [m]
+        rot = [0, 1, 0, 0]
         default_joint_angles = {  # = target angles [rad] when action = 0.0
                 'P_base_to_1_Link': 0.0,
             'P_1_to_2_Link': -0.02,
-            'P_2_to_left_Link': 8.0/180*3.1415,
-            'P_2_to_right_Link': 18.5/180*3.1415,
+            'P_2_to_left_Link': 7.47/180*3.1416,
+            'P_2_to_right_Link': 18.37/180*3.1416,
         }
 
     class control(LeggedRobotCfg.control):
         # PD Drive parameters:
-        stiffness = {'P_base_to_1_Link': 300, 'P_1_to_2_Link':50.0,
-                     'P_2_to_left_Link': 120., 'P_2_to_right_Link': 120.}  # [N*m/rad]
-        damping = {'P_base_to_1_Link': 27.6, 'P_1_to_2_Link':0.,
-                     'P_2_to_left_Link': 6., 'P_2_to_right_Link': 6.}  # [N*m*s/rad]     # [N*m*s/rad]
+        stiffness = {'P_base_to_1_Link': 40, 'P_1_to_2_Link':160,#刚度大→关节 “执着”→一点偏差就产生大力矩，快速回到目标位置
+                     'P_2_to_left_Link': 100., 'P_2_to_right_Link': 100.}  # [N*m/rad]
+        damping = {'P_base_to_1_Link': 3, 'P_1_to_2_Link':6.,
+                     'P_2_to_left_Link': 2, 'P_2_to_right_Link': 2.}  # [N*m*s/rad]     # [N*m*s/rad]
         # action scale: target angle = actionScale * action + defaultAngle
         action_scale = 0.2
         # decimation: Number of control action updates @ sim DT per policy DT
         decimation = 4
-        use_actuator_network = True
+        use_actuator_network = False
         actuator_net_file = "{LEGGED_GYM_ROOT_DIR}/resources/actuator_nets/anydrive_v3_lstm.pt"
     class asset(LeggedRobotCfg.asset):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/claw4/urdf/claw4.urdf'
@@ -63,13 +63,14 @@ class Claw4Cfg(LeggedRobotCfg):
         name = 'rod'
         pos=[0.0,0.0,1.3]
         rand_xy=[0.05,0.05]
-        friction=1.
+        friction=1.2
         restitution=0.0
 
     class domain_rand(LeggedRobotCfg.domain_rand):
         randomize_friction = True
         friction_range = [1.,1.2]
         push_robots=True
+        max_push_vel_xy = 0.2
 
     class noise:
         add_noise = False
@@ -92,7 +93,7 @@ class Claw4Cfg(LeggedRobotCfg):
 
         class scales(LeggedRobotCfg.rewards.scales):
             termination = -0.0
-            claw_stand=+0.0
+            claw_stand=+40.0
             tracking_lin_vel = 0.0
             tracking_ang_vel = 0.0
             lin_vel_z = -0.0
@@ -113,6 +114,6 @@ class Claw4CfgPPO(LeggedRobotCfgPPO):
     class runner(LeggedRobotCfgPPO.runner):
         run_name = ''
         experiment_name = 'claww4_grasp_4dof'
-
+        max_iterations = 100000
     class algorithm(LeggedRobotCfgPPO.algorithm):
         entropy_coef = 0.01
