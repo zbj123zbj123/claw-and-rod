@@ -24,18 +24,18 @@ class Claw4Cfg(LeggedRobotCfg):
             heading = [-3.14, 3.14]
 
     class init_state(LeggedRobotCfg.init_state):
-        pos = [0.0, 0.0,0.4] #[0.0, 0.0, 3.0]  # x,y,z [m]
+        pos = [0.0, 0.0, 3.0]#[0.0, 0.0,0.4]#[0.0, 0.0, 3.0]# #[0.0, 0.0, 3.0]  # x,y,z [m]
         rot = [0, 1, 0, 0]
         default_joint_angles = {  # = target angles [rad] when action = 0.0
-                'P_base_to_1_Link': 0.0,
-            'P_1_to_2_Link': -0.02,
+                'P_base_to_1_Link': 0,
+            'P_1_to_2_Link': -0.,
             'P_2_to_left_Link': 7.47/180*3.1416,
             'P_2_to_right_Link': 18.37/180*3.1416,
         }
 
     class control(LeggedRobotCfg.control):
         # PD Drive parameters:
-        stiffness = {'P_base_to_1_Link': 40, 'P_1_to_2_Link':160,#刚度大→关节 “执着”→一点偏差就产生大力矩，快速回到目标位置
+        stiffness = {'P_base_to_1_Link': 100, 'P_1_to_2_Link':160,#刚度大→关节 “执着”→一点偏差就产生大力矩，快速回到目标位置
                      'P_2_to_left_Link': 100., 'P_2_to_right_Link': 100.}  # [N*m/rad]
         damping = {'P_base_to_1_Link': 3, 'P_1_to_2_Link':6.,
                      'P_2_to_left_Link': 2, 'P_2_to_right_Link': 2.}  # [N*m*s/rad]     # [N*m*s/rad]
@@ -48,12 +48,12 @@ class Claw4Cfg(LeggedRobotCfg):
     class asset(LeggedRobotCfg.asset):
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/claw4/urdf/claw4.urdf'
         name = "claw4"
-        fix_base_link = False
+        fix_base_link = True
         disable_gravity = False
         collapse_fixed_joints = False
         foot_name = 'None'
-        penalize_contacts_on = ["P_base_Link","P_1_Link", "P_2_Link","P_left_Link","P_right_Link"]
-        terminate_after_contacts_on = ["P_base_Link"]
+        penalize_contacts_on =[] #["P_base_Link","P_1_Link", "P_2_Link","P_left_Link","P_right_Link"]
+        terminate_after_contacts_on = []#["P_base_Link"]
         claw_names = ["P_left_Link","P_right_Link"]
         default_dof_drive_mode = 3
         flip_visual_attachments = False

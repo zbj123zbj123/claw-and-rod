@@ -20,9 +20,9 @@ class Claw4(LeggedRobot):
     cfg: Claw4Cfg
     def __init__(self, cfg, sim_params, physics_engine, sim_device, headless):
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
-        self.tune_on=True
+        self.tune_on=False
         self.tune_joint="P_1_to_2_Link"
-        self.tune_A=0
+        self.tune_A=0.5
         self.tune_delay=1.0
         self.tune_f=0.50
         self.tune_dt=self.sim_params.dt
