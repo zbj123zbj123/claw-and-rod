@@ -92,7 +92,8 @@ class LeggedRobot(BaseTask):
 #做什么：从配置里取出动作裁剪阈值，通常是一个标量（也可支持向量），表示动作允许的绝对值上限。
 #来自哪里：LeggedRobotCfg.normalization.clip_actions。它独立于“动作缩放”参数（如 control.action_scale 或 PD 的 Kp/Kd），作用是先把动作限制到安全范围，再进入力矩/目标计算。
         self.actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
-        print("actions: ", self.actions)
+        if self.tune_on:
+            print("actions: ", self.actions)
         #语义：对 actions 逐元素裁剪到区间 [-clip_actions, clip_actions]。把裁剪后的张量放到 环境张量所在设备（
 #等价函数：torch.clamp(...)。
         # step physics and render each frame
@@ -107,6 +108,11 @@ class LeggedRobot(BaseTask):
 #控制周期 Δt_ctrl = decimation * Δt_phys（例如 decimation=4 ⇒ 1/100 s）
 #这样可用高频物理保证数值稳定，同时保持较低的控制频率。
             self.torques = self._compute_torques(self.actions).view(self.torques.shape)
+            power2 = (self.torques[:, 1] * self.dof_vel[:, 1])
+            # print("mean_power2:", power2.mean().item(),
+            #       "neg_ratio:", (power2 < 0).float().mean().item())
+
+            #print("torques: ", self.torques)
             #做什么：把无量纲动作转换为可下发的关节力矩（或等价驱动力）。典型：
 #PD 位置控制：τ = Kp (q* − q) + Kd (qd* − qd)，动作常代表目标位姿增量或归一化角度；
 #速度控制：τ = Kd (qd* − qd)；
@@ -180,8 +186,6 @@ class LeggedRobot(BaseTask):
         actors_per_env = 2  # 你现在每个环境里有 2 个 actor：机器人 + 物体
         root_states = self.root_states.view(self.num_envs, actors_per_env, 13)
         self.base_quat = root_states[:, 0, 3:7]
-        print(root_states)
-        print(root_states.shape[0])
         #base_quat：基座朝向四元数（xyzw），来源于根状态列 3:7
         self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, root_states[:, 0,7:10])
         #quat_rotate_inverse(q, v)：把世界系向量 v旋转到机体坐标系
@@ -224,6 +228,19 @@ class LeggedRobot(BaseTask):
         """ Check if environments need to be reset
         """
         self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
+        # root = self.root_states.view(-1, 13)
+        # quat = root[self.robot_actor_indices, 3:7]  # [N,4] (x,y,z,w)
+        #
+        # # 计算 base 的“上方向”在世界系里指向哪里
+        # z_axis = torch.zeros((self.num_envs, 3), device=self.device)
+        # z_axis[:, 2] = 1.0
+        # up = quat_rotate(quat, z_axis)
+        # h = root[self.robot_actor_indices, 2]
+        # upz = up[:, 2]
+        # flipped = (upz < -0.5)
+        # self.h_peak = torch.maximum(self.h_peak, h)
+        # self.has_reached_high = self.h_peak >= 2.18
+        # self.reset_buf |=(self.has_reached_high & flipped)
         self.time_out_buf = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
         self.reset_buf |= self.time_out_buf
 
@@ -387,8 +404,16 @@ class LeggedRobot(BaseTask):
         """
         if env_id==0:
             self.dof_pos_limits = torch.zeros(self.num_dof, 2, dtype=torch.float, device=self.device, requires_grad=False)
+            self.dof_pos_limits_hard = torch.zeros(self.num_dof, 2, dtype=torch.float, device=self.device,
+                                              requires_grad=False)
             self.dof_vel_limits = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
             self.torque_limits = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
+            for i in range(len(props)):
+                low = props["lower"][i].item()
+                high = props["upper"][i].item()
+                self.dof_pos_limits_hard[i, 0] = low
+                self.dof_pos_limits_hard[i, 1] = high
+
             for i in range(len(props)):
                 self.dof_pos_limits[i, 0] = props["lower"][i].item()
                 self.dof_pos_limits[i, 1] = props["upper"][i].item()
@@ -463,15 +488,21 @@ class LeggedRobot(BaseTask):
             [torch.Tensor]: Torques sent to the simulation
         """
         #pd controller
+        root = self.root_states.view(-1, 13)
+        h = root[self.robot_actor_indices, 2]
 
-        self.action_scale_vec = torch.ones(self.num_dof, device=self.device) * self.cfg.control.action_scale
-        left_idx=self.dof_names.index('P_2_to_left_Link')
-        right_idx=self.dof_names.index('P_2_to_right_Link')
-        self.action_scale_vec[left_idx] = 0.18
-        self.action_scale_vec[right_idx] = 0.20
+        enter_hold = (h > 1.85)
+        exit_hold = (h < 1.70)
+        self.is_hold = (self.is_hold | enter_hold) & (~exit_hold)
+        self.action_scale_vec = torch.ones(self.num_envs,self.num_dof, device=self.device) * self.cfg.control.action_scale
+        self.action_scale_vec[self.is_hold,:]=0.05
+        # left_idx=self.dof_names.index('P_2_to_left_Link')
+        # right_idx=self.dof_names.index('P_2_to_right_Link')
+        # self.action_scale_vec[left_idx] = 0.18
+        # self.action_scale_vec[right_idx] = 0.20
         actions_scaled = actions * self.action_scale_vec
-        self.claw_idx =[left_idx, right_idx]
-        actions_scaled[:,self.claw_idx] = torch.tensor(0, device=actions_scaled.device, dtype=actions_scaled.dtype)
+        # self.claw_idx =[left_idx, right_idx]
+        # actions_scaled[:,self.claw_idx] = torch.tensor(0, device=actions_scaled.device, dtype=actions_scaled.dtype)
 
         if self.tune_on:
             qd_ref = torch.zeros_like(self.dof_vel)
@@ -565,24 +596,43 @@ class LeggedRobot(BaseTask):
                     self.tb.add_scalar("tune/Kd_" + self.tune_joint, kd, step)
 
                     # 终端也打印一份，方便你看
-                    print(f"[tune-{self.tune_joint}] step={step}  "
-                          f"rms={rms:.4f} rad  Mp={Mp:.1f}%  tr={tr:.3f}s  ts={ts:.3f}s  ess={ess:.4f} rad  "
-                          f"Kp={kp:.1f}  Kd={kd:.1f}")
+                    # print(f"[tune-{self.tune_joint}] step={step}  "
+                    #       f"rms={rms:.4f} rad  Mp={Mp:.1f}%  tr={tr:.3f}s  ts={ts:.3f}s  ess={ess:.4f} rad  "
+                    #       f"Kp={kp:.1f}  Kd={kd:.1f}")
         self.tune_k += 1
         control_type = self.cfg.control.control_type
-        print('actions_scaled', actions_scaled.shape)
-        print('default_dof_pos', self.default_dof_pos.shape)
-        print('dof_pos', self.dof_pos.shape)
-        print('dof_vel', self.dof_vel.shape)
-        print('p_gains', self.p_gains.shape)
-        print('d_gains', self.d_gains.shape)
+        # print('actions_scaled', actions_scaled.shape)
+        # print('default_dof_pos', self.default_dof_pos.shape)
+        # print('dof_pos', self.dof_pos.shape)
+        # print('dof_vel', self.dof_vel.shape)
+        # print('p_gains', self.p_gains.shape)
+        # print('d_gains', self.d_gains.shape)
 
         if control_type=="P":
-            torques = self.p_gains*(actions_scaled + self.default_dof_pos - self.dof_pos) - self.d_gains*self.dof_vel
+            # err = (actions_scaled + self.default_dof_pos - self.dof_pos)
+
+            # 目标角
+            q_des = actions_scaled + self.default_dof_pos  # [num_envs, num_dof]
+            lower = self.dof_pos_limits_hard[:, 0]  # [num_dof]
+            upper = self.dof_pos_limits_hard[:, 1]  # [num_dof]
+            q_des = torch.clamp(q_des, lower, upper)
+
+
+            kd2_swing = 4.0
+            kd2_hold = 25.0
+
+            d_eff = self.d_gains.unsqueeze(0).expand(self.num_envs, -1).clone()
+            d_eff[:, 1] = kd2_swing
+            d_eff[self.is_hold, 1] = kd2_hold
+            torques = self.p_gains*(q_des - self.dof_pos) - d_eff*self.dof_vel
+
+            # print("err first2:", err[0, :2].tolist(),
+            #       "Kp:", self.p_gains[:2].tolist(),
+            #       "raw:", torques[0, :2].tolist(),)
             if self.tune_on:
                 torques = self.p_gains * (pos_target - self.dof_pos) - self.d_gains * (self.dof_vel - qd_ref)  # 调参的时候用
-            print("sss",self.default_dof_pos-self.dof_pos)
-            print("ttt3",torques)
+            # print("sss",self.default_dof_pos-self.dof_pos)
+            #print("ttt3",torques)
         elif control_type=="V":
             torques = self.p_gains*(actions_scaled - self.dof_vel) - self.d_gains*(self.dof_vel - self.last_dof_vel)/self.sim_params.dt
         elif control_type=="T":
@@ -679,7 +729,8 @@ class LeggedRobot(BaseTask):
         Args:
             env_ids (List[int]): Environemnt ids
         """
-        self.dof_pos[env_ids] = self.default_dof_pos * torch_rand_float(0.5, 1.5, (len(env_ids), self.num_dof), device=self.device)
+        self.dof_pos[env_ids] = self.default_dof_pos * torch_rand_float(0.9, 1.1, (len(env_ids), self.num_dof), device=self.device)
+        #gai
         if self.tune_on:
             self.dof_pos[env_ids] = self.default_dof_pos
         # 打印形状验证
@@ -690,7 +741,7 @@ class LeggedRobot(BaseTask):
                                               gymtorch.unwrap_tensor(self.dof_state),
                                               gymtorch.unwrap_tensor(self.robot_actor_indices[env_ids].to(dtype=torch.int32)), len(env_ids_int32))
 
-        print("离开 _reset_dofs 时的",self.robot_actor_indices[env_ids])
+        # print("离开 _reset_dofs 时的",self.robot_actor_indices[env_ids])
     def _reset_root_states(self, env_ids):
         """ Resets ROOT states position and velocities of selected environmments
             Sets base position based on the curriculum
@@ -817,15 +868,15 @@ class LeggedRobot(BaseTask):
         actors_per_env=2
         self.root_states = gymtorch.wrap_tensor(actor_root_state).view(self.num_envs, actors_per_env, 13)
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
-        print("dofstate:", self.dof_state)
-        print(self.dof_state.shape[0])
+        # print("dofstate:", self.dof_state)
+        # print(self.dof_state.shape[0])
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]#view 不是拷贝，是同一块内存的不同“看法”。所以你改 view，其实就是在改同一块底层内存，原张量当然也跟着变。
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
         self.base_quat = self.root_states[:, 0,3:7]
 
 
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs,-1,3)# shape: num_envs, num_bodies, xyz axis
-        print(self.contact_forces.shape)
+        # print(self.contact_forces.shape)
         # initialize some data used later on
         self.common_step_counter = 0
         self.extras = {}
@@ -835,6 +886,12 @@ class LeggedRobot(BaseTask):
         self.torques = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.p_gains = torch.zeros(self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.d_gains = torch.zeros(self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        # 初始化一次（_init_buffers 里）
+        self.last_h = torch.zeros(self.num_envs, device=self.device)
+
+        self.is_hold = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.p_gains_base = self.p_gains.clone()
+        self.d_gains_base = self.d_gains.clone()
         self.actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
@@ -1201,7 +1258,7 @@ class LeggedRobot(BaseTask):
     
     def _reward_torques(self):
         # Penalize torques
-        return torch.sum(torch.square(self.torques), dim=1)
+        return self.is_hold * torch.sum(torch.square(self.torques), dim=1)
 
     def _reward_dof_vel(self):
         # Penalize dof velocities
@@ -1210,11 +1267,17 @@ class LeggedRobot(BaseTask):
     def _reward_dof_acc(self):
         # Penalize dof accelerations
         return torch.sum(torch.square((self.last_dof_vel - self.dof_vel) / self.dt), dim=1)
-    
+
+    # def _reward_action_rate(self):
+    #     # Penalize changes in actions
+    #     return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
     def _reward_action_rate(self):
-        # Penalize changes in actions
-        return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
-    
+        da = self.last_actions - self.actions
+        rate = torch.sum(torch.square(da), dim=1)
+
+        gate = self.is_hold.float()  # [num_envs]，hold才罚
+        return rate * gate
+
     def _reward_collision(self):
         # Penalize collisions on selected bodies
         return torch.sum(1.*(torch.norm(self.contact_forces[:, self.penalised_contact_indices, :], dim=-1) > 0.1), dim=1)
@@ -1236,7 +1299,7 @@ class LeggedRobot(BaseTask):
 
     def _reward_torque_limits(self):
         # penalize torques too close to the limit
-        return torch.sum((torch.abs(self.torques) - self.torque_limits*self.cfg.rewards.soft_torque_limit).clip(min=0.), dim=1)
+        return self.is_hold*torch.sum((torch.abs(self.torques) - self.torque_limits*self.cfg.rewards.soft_torque_limit).clip(min=0.), dim=1)
 
     def _reward_tracking_lin_vel(self):
         # Tracking of linear velocity commands (xy axes)

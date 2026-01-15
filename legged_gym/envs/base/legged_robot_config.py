@@ -38,7 +38,7 @@ class LeggedRobotCfg(BaseConfig):
         num_actions = 12
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm开着它，时间用完的终止不算负面
-        episode_length_s = 20 # episode length in seconds
+        episode_length_s = 8 # episode length in seconds
 
     class terrain:
         mesh_type = 'trimesh' # "heightfield" # none, plane, heightfield or trimesh

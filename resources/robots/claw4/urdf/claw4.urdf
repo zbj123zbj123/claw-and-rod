@@ -99,7 +99,7 @@
     <limit
       lower="-3.14"
       upper="3.14"
-      effort="200000000000000000000000000"
+      effort="100 "
       velocity="20" />
   </joint>
   <link
@@ -157,7 +157,7 @@
     <limit
       lower="-3.14"
       upper="3.14"
-      effort="2000000000000000000"
+      effort="100"
       velocity="20" />
   </joint>
   <link
@@ -202,10 +202,10 @@
   </link>
   <joint
     name="P_2_to_left_Link"
-    type="revolute">
+    type="fixed">
     <origin
       xyz="0.30414 0 0"
-      rpy="3.1416 0 -1.4056" />
+      rpy="3.1416 0 -1.22" />
     <parent
       link="P_2_Link" />
     <child
@@ -260,10 +260,10 @@
   </link>
   <joint
     name="P_2_to_right_Link"
-    type="revolute">
+    type="fixed">
     <origin
       xyz="0.2877 0.098639 0"
-      rpy="0 0 -1.4056" />
+      rpy="0 0 -1.78" />
     <parent
       link="P_2_Link" />
     <child

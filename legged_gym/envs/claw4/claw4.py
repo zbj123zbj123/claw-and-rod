@@ -21,8 +21,8 @@ class Claw4(LeggedRobot):
     def __init__(self, cfg, sim_params, physics_engine, sim_device, headless):
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
         self.tune_on=False
-        self.tune_joint="P_1_to_2_Link"
-        self.tune_A=0.5
+        self.tune_joint="P_base_to_1_Link"
+        self.tune_A=1.5
         self.tune_delay=1.0
         self.tune_f=0.50
         self.tune_dt=self.sim_params.dt
@@ -211,6 +211,12 @@ class Claw4(LeggedRobot):
             self.claw_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], claw_names[i])
 
     def _reset_root_states(self, env_ids):
+        self.has_reached_high = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.h_peak = torch.full((self.num_envs,), -1e9, device=self.device)
+        root = self.root_states.view(-1, 13)
+        h = root[self.robot_actor_indices, 2]  # [num_envs]
+        self.last_h[env_ids] = h[env_ids]
+
         env_ids = torch.as_tensor(env_ids, dtype=torch.long, device=self.device)
         root = self.root_states.view(-1, 13)
         rod_idx=self.rod_actor_indices[env_ids].to(device=self.device, dtype=torch.long)
@@ -226,14 +232,14 @@ class Claw4(LeggedRobot):
         # 打印关键索引值，检查是否有负
 
         # 替换原print，先打印形状、设备和是否有NaN
-        print("contact_forces形状:", self.contact_forces.shape)  # 应是(50, N, 3)
-        print("contact_forces设备:", self.contact_forces.device)  # 应与self.device一致（如cuda:0）
-        print("contact_forces是否有NaN:", torch.isnan(self.contact_forces).any().item())  # 应是False
-
-        print("env_ids:", env_ids)  # 应是0~num_envs-1的整数
-        print("robot_idx:", robot_idx)  # 应是>=0且<total_actors的整数
-        print("rod_idx:", rod_idx)  # 应是>=0且<total_actors的整数
-        print("root总长度:", root.shape[0])  # total_actors = num_envs * 2（因为每个环境2个actor）
+        # print("contact_forces形状:", self.contact_forces.shape)  # 应是(50, N, 3)
+        # print("contact_forces设备:", self.contact_forces.device)  # 应与self.device一致（如cuda:0）
+        # print("contact_forces是否有NaN:", torch.isnan(self.contact_forces).any().item())  # 应是False
+        #
+        # print("env_ids:", env_ids)  # 应是0~num_envs-1的整数
+        # print("robot_idx:", robot_idx)  # 应是>=0且<total_actors的整数
+        # print("rod_idx:", rod_idx)  # 应是>=0且<total_actors的整数
+        # print("root总长度:", root.shape[0])  # total_actors = num_envs * 2（因为每个环境2个actor）
 
         #root[robot_idx,7:13]= torch_rand_float(-1.,1.,(len(env_ids), 6), device=self.device)
         root[robot_idx, 7:13] = torch.zeros_like(root[robot_idx, 7:13])
@@ -270,4 +276,33 @@ class Claw4(LeggedRobot):
     def _reward_claw_stand(self):
         root = self.root_states.view(-1, 13)
         h=root[self.robot_actor_indices,2]
-        return h*self._claw_contact_rod(threshold=20.0)
+        h0=1.3
+        k=10
+        return torch.sigmoid(k*(h-h0))
+
+    def _reward_hold_vel(self):
+        root = self.root_states.view(-1, 13)
+        h = root[self.robot_actor_indices, 2]
+        alpha = (h > 2.0).float()  # 只在高处生效
+
+        # 前两关节速度平方
+        v = self.dof_vel[:, :2]
+        return alpha * (v * v).sum(dim=1)
+
+    def _reward_h_balance(self):
+        root = self.root_states.view(-1, 13)
+        h = root[self.robot_actor_indices, 2]  # [num_envs]
+
+        dh = h - self.last_h  # 每步高度变化
+        self.last_h = h.detach()  # 只存数值，别连计算图
+
+        # 归一化（你高度范围 0.4~2.2，跨度 1.8）
+        dh_norm = dh / 1.8
+        jitter = dh_norm * dh_norm  # (Δh)^2
+
+        gate = self.is_hold.float()  # 只在 hold 阶段罚
+        return gate * jitter
+
+
+
+
