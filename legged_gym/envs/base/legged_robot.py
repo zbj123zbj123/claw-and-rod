@@ -495,7 +495,7 @@ class LeggedRobot(BaseTask):
         exit_hold = (h < 1.70)
         self.is_hold = (self.is_hold | enter_hold) & (~exit_hold)
         self.action_scale_vec = torch.ones(self.num_envs,self.num_dof, device=self.device) * self.cfg.control.action_scale
-        self.action_scale_vec[self.is_hold,:]=0.05
+        self.action_scale_vec[self.is_hold,:]=0.001
         # left_idx=self.dof_names.index('P_2_to_left_Link')
         # right_idx=self.dof_names.index('P_2_to_right_Link')
         # self.action_scale_vec[left_idx] = 0.18
@@ -625,7 +625,13 @@ class LeggedRobot(BaseTask):
             d_eff[:, 1] = kd2_swing
             d_eff[self.is_hold, 1] = kd2_hold
             torques = self.p_gains*(q_des - self.dof_pos) - d_eff*self.dof_vel
-
+            tau_ff = torch.zeros_like(torques)
+            theta1 = self.dof_pos[:, 1]
+            theta0 = self.dof_pos[:, 0]
+            #print(theta1),print(theta0)
+            tau_ff[:, 1] = 30 * torch.sin(theta1)
+            tau_ff[:, 0] = 30 *self.is_hold* torch.sin(theta0)
+            torques+=tau_ff
             # print("err first2:", err[0, :2].tolist(),
             #       "Kp:", self.p_gains[:2].tolist(),
             #       "raw:", torques[0, :2].tolist(),)
@@ -1258,7 +1264,7 @@ class LeggedRobot(BaseTask):
     
     def _reward_torques(self):
         # Penalize torques
-        return self.is_hold * torch.sum(torch.square(self.torques), dim=1)
+        return torch.sum(torch.square(self.torques), dim=1)
 
     def _reward_dof_vel(self):
         # Penalize dof velocities

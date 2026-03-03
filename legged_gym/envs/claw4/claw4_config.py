@@ -35,12 +35,12 @@ class Claw4Cfg(LeggedRobotCfg):
 
     class control(LeggedRobotCfg.control):
         # PD Drive parameters:
-        stiffness = {'P_base_to_1_Link': 600, 'P_1_to_2_Link':500,#刚度大→关节 “执着”→一点偏差就产生大力矩，快速回到目标位置
+        stiffness = {'P_base_to_1_Link': 70, 'P_1_to_2_Link':120,#刚度大→关节 “执着”→一点偏差就产生大力矩，快速回到目标位置
                      'P_2_to_left_Link': 100., 'P_2_to_right_Link': 100.}  # [N*m/rad]
-        damping = {'P_base_to_1_Link': 25, 'P_1_to_2_Link':8.,
+        damping = {'P_base_to_1_Link': 2, 'P_1_to_2_Link':1.5,
                      'P_2_to_left_Link': 2, 'P_2_to_right_Link': 2.}  # [N*m*s/rad]     # [N*m*s/rad]
         # action scale: target angle = actionScale * action + defaultAngle
-        action_scale = 0.2
+        action_scale = 0.4
         # decimation: Number of control action updates @ sim DT per policy DT
         decimation = 4
         use_actuator_network = False
@@ -63,14 +63,16 @@ class Claw4Cfg(LeggedRobotCfg):
         name = 'rod'
         pos=[0.0,0.0,1.3]
         rand_xy=[0.05,0.05]
-        friction=4.0
+        friction=10.0
         restitution=0.0
 
     class domain_rand(LeggedRobotCfg.domain_rand):
         randomize_friction = True
-        friction_range = [2,2.2]
+        friction_range = [1,1.2]
         push_robots=True
-        max_push_vel_xy = 0.05#0.2
+        max_push_vel_xy = 0.01#0.2
+        randomize_base_mass = True
+        added_mass_range = [-0.5, 0.5]
 
     class normalization:
         class obs_scales:
@@ -104,17 +106,17 @@ class Claw4Cfg(LeggedRobotCfg):
         class scales(LeggedRobotCfg.rewards.scales):
             termination = -0.0
             claw_stand=+20.0#GAI
-            h_balance=0
-            hold_vel=-0.004
+            h_balance=0#-6e-3
+            hold_vel=0#-0.04
             action_rate = -0.
             tracking_lin_vel = 0.0
             tracking_ang_vel = 0.0
             lin_vel_z = -0.0
             ang_vel_xy = -0.0
             orientation = -0.
-            torques = -3e-2
+            torques = -4e-6
             dof_vel = -0.00000
-            dof_acc = -0.0000001
+            dof_acc = -0.000000
             base_height = -0.
             feet_air_time = 0.
             collision = -0.

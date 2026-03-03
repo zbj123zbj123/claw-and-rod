@@ -281,13 +281,9 @@ class Claw4(LeggedRobot):
         return torch.sigmoid(k*(h-h0))
 
     def _reward_hold_vel(self):
-        root = self.root_states.view(-1, 13)
-        h = root[self.robot_actor_indices, 2]
-        alpha = (h > 2.0).float()  # 只在高处生效
-
         # 前两关节速度平方
         v = self.dof_vel[:, :2]
-        return alpha * (v * v).sum(dim=1)
+        return self.is_hold* (v * v).sum(dim=1)
 
     def _reward_h_balance(self):
         root = self.root_states.view(-1, 13)
