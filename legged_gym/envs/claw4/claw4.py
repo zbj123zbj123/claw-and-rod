@@ -21,8 +21,8 @@ class Claw4(LeggedRobot):
     def __init__(self, cfg, sim_params, physics_engine, sim_device, headless):
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
         self.tune_on=False
-        self.tune_joint="P_1_to_2_Link"
-        self.tune_A=0.5
+        self.tune_joint="P_base_to_1_Link"
+        self.tune_A=1.5
         self.tune_delay=1.0
         self.tune_f=0.50
         self.tune_dt=self.sim_params.dt
@@ -68,6 +68,8 @@ class Claw4(LeggedRobot):
         asset_options = gymapi.AssetOptions()  # 每个 AssetOptions 只在对应的 load_asset(...) 那一次生效在那个资产上，互不影响。不同资产当然可以、也应该用不同的选项,给了一个类
         asset_options.default_dof_drive_mode = self.cfg.asset.default_dof_drive_mode
         asset_options.vhacd_enabled = True
+        # asset_options.vhacd_params = gymapi.VhacdParams()
+        # asset_options.vhacd_params.resolution = 100000  # 可调
         asset_options.collapse_fixed_joints = self.cfg.asset.collapse_fixed_joints
         asset_options.replace_cylinder_with_capsule = self.cfg.asset.replace_cylinder_with_capsule
         asset_options.flip_visual_attachments = self.cfg.asset.flip_visual_attachments
@@ -95,13 +97,13 @@ class Claw4(LeggedRobot):
         rod_shape_props_asset = self.gym.get_asset_rigid_shape_properties(rod_asset)
 
         body_names1 = self.gym.get_asset_rigid_body_names(robot_asset)
-        print("body_names1:", body_names1)
+        #print("body_names1:", body_names1)
         body_names2 = self.gym.get_asset_rigid_body_names(rod_asset)
-        print("body_names2:", body_names2)
+        #print("body_names2:", body_names2)
         body_names = body_names1 + body_names2
-        print("body_names3:", type(body_names2))
+        #print("body_names3:", type(body_names2))
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
-        print("dof_names:", self.dof_names)
+        #print("dof_names:", self.dof_names)
         self.num_bodies = len(body_names)
         self.num_dofs = len(self.dof_names)
         feet_names = [s for s in body_names if self.cfg.asset.foot_name in s]
@@ -121,7 +123,7 @@ class Claw4(LeggedRobot):
         base_init_state_list = self.cfg.init_state.pos + self.cfg.init_state.rot + self.cfg.init_state.lin_vel + self.cfg.init_state.ang_vel
 
         self.base_init_state = to_torch(base_init_state_list, device=self.device, requires_grad=False)
-        print("baseinit:", self.base_init_state)
+        #print("baseinit:", self.base_init_state)
         start_pose = gymapi.Transform()
         start_pose.p = gymapi.Vec3(*self.base_init_state[:3])
 
@@ -140,7 +142,7 @@ class Claw4(LeggedRobot):
         for i in range(self.num_envs):
             # create env instance
             env_handle = self.gym.create_env(self.sim, env_lower, env_upper, int(np.sqrt(self.num_envs)))
-            print(f"环境{i}的env_handle:", env_handle)#只是告诉 Gym “我不提供包围盒，你按我自己放好的位置来”。你的代码正是这种做法——用 self.env_origins[i] 把每个 env 的东西摆开，所以就算边界是 0，也不会重叠。
+            #print(f"环境{i}的env_handle:", env_handle)#只是告诉 Gym “我不提供包围盒，你按我自己放好的位置来”。你的代码正是这种做法——用 self.env_origins[i] 把每个 env 的东西摆开，所以就算边界是 0，也不会重叠。
             #env 边界不是“墙”，不会阻止跨 env 碰撞。真正避免相互影响，要把不同 env 的 actor 放得足够远（你已经在做）。
             pos = self.env_origins[i].clone()#确定每个环境的原点，但是可能会有一样的，所以下面一行加了变化来保证每个环境原点不一样，但是视觉上可能会有重合，也仅限于地形模式（heightfield和trimesh）
             pos[:2] += torch_rand_float(-1., 1., (2,1), device=self.device).squeeze(1)
@@ -151,9 +153,9 @@ class Claw4(LeggedRobot):
             self.gym.set_asset_rigid_shape_properties(robot_asset, rigid_shape_props)
             actor_handle = self.gym.create_actor(env_handle, robot_asset, start_pose, self.cfg.asset.name, i,
                                                  self.cfg.asset.self_collisions, 0)
-            print(f"环境{i}的机器人handle：",actor_handle)
+            #print(f"环境{i}的机器人handle：",actor_handle)
             self.robot_actor_indices[i] = self.gym.get_actor_index(env_handle, actor_handle, gymapi.DOMAIN_SIM)
-            print(f"环境{i}的机器人robot_indices：",self.robot_actor_indices[i])
+            #print(f"环境{i}的机器人robot_indices：",self.robot_actor_indices[i])
             props=rod_shape_props_asset
             for s in range(len(props)):
                 props[s].friction = float(self.cfg.obj.friction)
@@ -171,14 +173,14 @@ class Claw4(LeggedRobot):
             q=rod_pose.r
             self.rod_quat=torch.tensor([q.x,q.y,q.z,q.w], device=self.device)
             rod_handle=self.gym.create_actor(env_handle,rod_asset,rod_pose,self.cfg.obj.name,i,0,0)
-            print(f"环境{i}的handle：",rod_handle)
+            #print(f"环境{i}的handle：",rod_handle)
             self.rod_handles.append(rod_handle)
-            print("handels:",self.rod_handles)
+            #print("handels:",self.rod_handles)
             self.rod_actor_indices[i] = self.gym.get_actor_index(env_handle, rod_handle, gymapi.DOMAIN_SIM)
 #SIM 域（DOMAIN_SIM）索引把所有环境的 actor 按创建顺序接在一起计数：
-            print(self.rod_actor_indices)
+            #print(self.rod_actor_indices)
             dof_props = self._process_dof_props(dof_props_asset, i)
-            print("关节角限制",dof_props)
+            #print("关节角限制",dof_props)
             # 调用方法processdof props调整关节属性增加鲁棒性   读取为了预留可改动空间，给self.doflimit赋值，return的是dofprops
             self.gym.set_actor_dof_properties(env_handle, actor_handle, dof_props)
             body_props = self.gym.get_actor_rigid_body_properties(env_handle, actor_handle)
@@ -192,12 +194,12 @@ class Claw4(LeggedRobot):
             #print(f"环境{i}的actor数: {env_actors}")  # 应输出2
             #total_actors += env_actors  # 累加
         # 循环结束后打印全局总数
-        print(f"全局总actor数: {total_actors}")  # 最终应输出100（50×2）
+        #print(f"全局总actor数: {total_actors}")  # 最终应输出100（50×2）
         for i in range(len(penalized_contact_names)):
             self.penalised_contact_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0],
                                                                                       self.actor_handles[0],
                                                                                       penalized_contact_names[i])
-        print("penalize:",self.penalised_contact_indices)
+        #print("penalize:",self.penalised_contact_indices)
         # 记录所有需要惩罚碰撞的刚体部件的索引（如躯干、手臂等）
         self.termination_contact_indices = torch.zeros(len(termination_contact_names), dtype=torch.long,
                                                        device=self.device, requires_grad=False)
@@ -205,7 +207,7 @@ class Claw4(LeggedRobot):
             self.termination_contact_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0],
                                                                                         self.actor_handles[0],
                                                                                         termination_contact_names[i])
-        print("termination:",self.termination_contact_indices)
+        #print("termination:",self.termination_contact_indices)
         self.claw_indices = torch.zeros(len(claw_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(claw_names)):
             self.claw_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], claw_names[i])
@@ -226,14 +228,14 @@ class Claw4(LeggedRobot):
         # 打印关键索引值，检查是否有负
 
         # 替换原print，先打印形状、设备和是否有NaN
-        print("contact_forces形状:", self.contact_forces.shape)  # 应是(50, N, 3)
-        print("contact_forces设备:", self.contact_forces.device)  # 应与self.device一致（如cuda:0）
-        print("contact_forces是否有NaN:", torch.isnan(self.contact_forces).any().item())  # 应是False
-
-        print("env_ids:", env_ids)  # 应是0~num_envs-1的整数
-        print("robot_idx:", robot_idx)  # 应是>=0且<total_actors的整数
-        print("rod_idx:", rod_idx)  # 应是>=0且<total_actors的整数
-        print("root总长度:", root.shape[0])  # total_actors = num_envs * 2（因为每个环境2个actor）
+        # print("contact_forces形状:", self.contact_forces.shape)  # 应是(50, N, 3)
+        # print("contact_forces设备:", self.contact_forces.device)  # 应与self.device一致（如cuda:0）
+        # print("contact_forces是否有NaN:", torch.isnan(self.contact_forces).any().item())  # 应是False
+        #
+        # print("env_ids:", env_ids)  # 应是0~num_envs-1的整数
+        # print("robot_idx:", robot_idx)  # 应是>=0且<total_actors的整数
+        # print("rod_idx:", rod_idx)  # 应是>=0且<total_actors的整数
+        # print("root总长度:", root.shape[0])  # total_actors = num_envs * 2（因为每个环境2个actor）
 
         #root[robot_idx,7:13]= torch_rand_float(-1.,1.,(len(env_ids), 6), device=self.device)
         root[robot_idx, 7:13] = torch.zeros_like(root[robot_idx, 7:13])
@@ -270,4 +272,25 @@ class Claw4(LeggedRobot):
     def _reward_claw_stand(self):
         root = self.root_states.view(-1, 13)
         h=root[self.robot_actor_indices,2]
-        return h*self._claw_contact_rod(threshold=20.0)
+        h0=1.3
+        k=10
+        return h#torch.sigmoid(k*(h-h0))
+
+    def _reward_hold_vel(self):
+        # 前两关节速度平方
+        v = self.dof_vel[:, :2]
+        return self.is_hold* (v * v).sum(dim=1)
+
+    def _reward_h_balance(self):
+        root = self.root_states.view(-1, 13)
+        h = root[self.robot_actor_indices, 2]  # [num_envs]
+
+        dh = h - self.last_h  # 每步高度变化
+        self.last_h = h.detach()  # 只存数值，别连计算图
+
+        # 归一化（你高度范围 0.4~2.2，跨度 1.8）
+        dh_norm = dh / 1.8
+        jitter = dh_norm * dh_norm  # (Δh)^2
+
+        gate = self.is_hold.float()  # 只在 hold 阶段罚
+        return gate * jitter
