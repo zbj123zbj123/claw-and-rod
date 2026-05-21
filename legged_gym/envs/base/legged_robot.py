@@ -166,6 +166,25 @@ class LeggedRobot(BaseTask):
             calls self._post_physics_step_callback() for  computations
             calls self._draw_debug_vis() if needed
         """
+        root = self.root_states.view(-1, 13)
+        h = root[self.robot_actor_indices, 2]
+
+        stand_ok = (
+                self.is_hold
+                & (h > 2.17)
+                #& (torch.norm(self.base_ang_vel, dim=1) < 1.0)
+        )
+
+        self.stand_hold_steps = torch.where(
+            stand_ok,
+            self.stand_hold_steps + 1,
+            torch.zeros_like(self.stand_hold_steps)
+        )
+
+        self.max_stand_hold_steps = torch.maximum(
+            self.max_stand_hold_steps,
+            self.stand_hold_steps
+        )
         self.gym.refresh_actor_root_state_tensor(self.sim)
         #每个控制周期后刷；用来得到基座位姿/速度
         self.gym.refresh_net_contact_force_tensor(self.sim)
@@ -177,7 +196,7 @@ class LeggedRobot(BaseTask):
 
         # prepare quantities
        # self.base_quat[:] = self.root_states[:, 3:7]
-        actors_per_env = 2  # 你现在每个环境里有 2 个 actor：机器人 + 物体
+        actors_per_env = 13 # 你现在每个环境里有 2 个 actor：机器人 + 物体
         root_states = self.root_states.view(self.num_envs, actors_per_env, 13)
         self.base_quat = root_states[:, 0, 3:7]
         #print(root_states)
@@ -248,7 +267,7 @@ class LeggedRobot(BaseTask):
         if self.cfg.commands.curriculum and (self.common_step_counter % self.max_episode_length==0):
             self.update_command_curriculum(env_ids)
         
-        # reset robot states
+        # reset robot states在reset前curriculum
         self._reset_dofs(env_ids)
         self._reset_root_states(env_ids)
 
@@ -640,8 +659,8 @@ class LeggedRobot(BaseTask):
                 torques = self.p_gains * (pos_target - self.dof_pos) - self.d_gains * (self.dof_vel - qd_ref)  # 调参的时候用
             # print("sss",self.default_dof_pos-self.dof_pos)
             h = root[self.robot_actor_indices, 2]
-            print(h)
-            print("ttt3",torques)
+            #print(h)
+            #print("ttt3",torques)
         elif control_type == "V":
             torques = self.p_gains * (actions_scaled - self.dof_vel) - self.d_gains * (
                         self.dof_vel - self.last_dof_vel) / self.sim_params.dt
@@ -875,7 +894,7 @@ class LeggedRobot(BaseTask):
         # 现在再 reshape
         self.rigid_body_states = rb_t.view(self.num_envs, self.num_bodies, 13)
         # create some wrapper tensors for different slices
-        actors_per_env=2
+        actors_per_env=13
         self.root_states = gymtorch.wrap_tensor(actor_root_state).view(self.num_envs, actors_per_env, 13)
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         #print("dofstate:", self.dof_state)

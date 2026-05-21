@@ -8,12 +8,12 @@
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 -1.57 0"/>
-      <geometry><cylinder length="0.8" radius="0.041"/></geometry>
+      <geometry><cylinder length="0.8" radius="0.037"/></geometry>
       <material name="gray"><color rgba="0.8 0.8 0.8 1"/></material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 -1.57 0"/>
-      <geometry><cylinder length="0.8" radius="0.041"/></geometry>
+      <geometry><cylinder length="0.8" radius="0.037"/></geometry>
     </collision>
   </link>
 </robot>

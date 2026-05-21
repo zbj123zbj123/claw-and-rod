@@ -49,13 +49,40 @@ class Claw4Cfg(LeggedRobotCfg):
         flip_visual_attachments = False
         self_collisions = 0  # 1 to disable, 0 to enable...bitwise filter
     class obj:
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/rod.urdf'
+        # files = [
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/41.urdf',
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/39.urdf',
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/37.urdf',
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/35.urdf',
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/32.urdf',
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/30.urdf',
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/27.urdf',
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/25.urdf',
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/23.urdf',
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/20.urdf',
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/18.urdf',
+        #     '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+        # ]
+        files = [
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/25.urdf',
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+            '{LEGGED_GYM_ROOT_DIR}/resources/obj/rod/urdf/15.urdf',
+        ]
         name = 'rod'
         pos=[0.0,0.0,1.3]
         rand_xy=[0.05,0.05]
-        friction=0.1#1.94#6.5 GAI
+        friction=1#0.1#1.94#6.5 GAI
         restitution=0.0
-
+        curriculum = True
     class commands:
         curriculum = False
         max_curriculum = 0
@@ -104,8 +131,8 @@ class Claw4Cfg(LeggedRobotCfg):
             lin_vel_z = -0.0
             ang_vel_xy = -0.0
             orientation = -0.
-            torques = -1e-6
-            dof_vel = -1e-7
+            torques = -8e-6#1
+            dof_vel = -2e-6#27
             dof_acc = -0.000000
             base_height = -0.
             feet_air_time = 0.
