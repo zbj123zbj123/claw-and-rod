@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="rod">
+  <link name="rod_Link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.8"/>
+      <inertia ixx="0.001" iyy="0.001" izz="0.0005" ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 -1.57 0"/>
+      <geometry><cylinder length="0.8" radius="0.020"/></geometry>
+      <material name="gray"><color rgba="0.8 0.8 0.8 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 -1.57 0"/>
+      <geometry><cylinder length="0.8" radius="0.020"/></geometry>
+    </collision>
+  </link>
+</robot>
